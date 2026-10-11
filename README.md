@@ -50,13 +50,13 @@ When a container running in OpenShift or Podman experiences an OOM event, it is 
 
 ```mermaid
 flowchart TD
-    APP["<div style='width:300px;height:180px;text-align:center;display:flex;flex-direction:column;justify-content:center;box-sizing:border-box;'><b>Python Flask App</b><br/><br/>HTTP :5000 <br/>Web UI for Memory &amp; CPU Stress Generation<br/><br/>OpenTelemetry Metric Exporter</div>"]
+    APP["<div style='width:300px;height:110px;text-align:center;display:flex;flex-direction:column;justify-content:top;box-sizing:border-box;'><b>Python Flask App</b>HTTP :5000<br/><br/>Web UI for Memory &amp; CPU Stress Generation<br/>OpenTelemetry Metric Exporter</div>"]
 
-    OTEL["<div style='width:300px;height:180px;text-align:center;display:flex;flex-direction:column;justify-content:center;box-sizing:border-box;'><b>OpenTelemetry Collector</b><br/>gRPC :4317<br/></div>"]
+    OTEL["<div style='width:300px;height:110px;text-align:center;display:flex;flex-direction:column;justify-content:top;box-sizing:border-box;'><b>OpenTelemetry Collector</b>gRPC :4317<br/></div>"]
 
-    PROM["<div style='width:300px;height:180px;text-align:center;display:flex;flex-direction:column;justify-content:center;box-sizing:border-box;'></b>Prometheus Server</b><br/>HTTP :9090</div>"]
+    PROM["<div style='width:300px;height:110px;text-align:center;display:flex;flex-direction:column;justify-content:top;box-sizing:border-box;'></b>Prometheus Server</b><br/>HTTP :9090</div>"]
 
-    GRAFANA["<div style='width:300px;height:180px;text-align:center;display:flex;flex-direction:column;justify-content:center;box-sizing:border-box;'></b>Grafana</b><br/><br/>HTTP :3000<br/>Dashboard</div>"]
+    GRAFANA["<div style='width:300px;height:110px;text-align:center;display:flex;flex-direction:column;justify-content:top;box-sizing:border-box;'></b>Grafana</b><br/>HTTP :3000<br/><br/>Dashboard</div>"]
 
     APP -->|"HTTP/2 binary Protobuf"| OTEL
     OTEL -->|"Prometheus Scrape :8889"| PROM
