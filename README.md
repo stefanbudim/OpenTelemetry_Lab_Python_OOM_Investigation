@@ -85,7 +85,34 @@ When a container running in OpenShift or Podman experiences an OOM event, it is 
 +-----------------------------------------------------------+
 ```
 
-> **Why gRPC (Port 4317) is used as default non-HTTP protocol:**  
+```mermaid
+flowchart TD
+    APP["Python Flask App (Podman / OpenShift)<br/><br/>Web UI for Memory &amp; CPU Stress Generation<br/>Cgroup v1/v2 Inspector (/sys/fs/cgroup)<br/>OpenTelemetry Metric Exporter<br/>OTLP / gRPC :4317"]
+
+    OTEL["OpenTelemetry Collector (Contrib)<br/><br/>Receiver: OTLP gRPC (:4317)<br/>Processors: memory_limiter, batch<br/>Exporters: Prometheus (:8889), Debug (stdout)"]
+
+    PROM["Prometheus Server (:9090)<br/><br/>Scrapes:<br/>otel_container_memory_cgroup_usage_bytes<br/>otel_process_memory_rss_bytes<br/>otel_process_cpu_utilization_percent"]
+
+    GRAFANA["Grafana Dashboard (:3000)<br/><br/>Headroom Before Kernel OOMKill<br/>RSS vs Hard Cgroup Limit Time Series"]
+
+    APP -->|"OTLP / gRPC :4317<br/>HTTP/2 binary Protobuf"| OTEL
+    OTEL -->|"Prometheus Scrape :8889"| PROM
+    PROM -->|"Data Source (PromQL)"| GRAFANA
+
+    classDef app fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+    classDef collector fill:#fef3c7,stroke:#d97706,color:#78350f
+    classDef prometheus fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+    classDef grafana fill:#dcfce7,stroke:#16a34a,color:#14532d
+
+    class APP app
+    class OTEL collector
+    class PROM prometheus
+    class GRAFANA grafana
+
+```
+
+
+> **Why gRPC (Port 4317) is used as default non-HTTP protocol:**
 > OTLP supports both gRPC (port 4317) and HTTP (port 4318). gRPC uses HTTP/2 with binary protocol buffers (`protobuf`), providing lower overhead, multiplexed streaming connections, and superior performance for continuous metric streaming.
 
 ---
@@ -223,3 +250,9 @@ make down-stack
   ```promql
   increase(container_oom_events_total{container="app"}[15m]) > 0
   ```
+
+
+# Screenshots
+
+
+![OpenTelemetry_Lab_Python_OOM_Investigation](doc/OpenTelemetry_Lab_Python_OOM_Investigation.png)
