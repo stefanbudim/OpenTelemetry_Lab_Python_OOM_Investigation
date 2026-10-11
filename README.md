@@ -48,54 +48,17 @@ When a container running in OpenShift or Podman experiences an OOM event, it is 
 
 ## 3. Architecture & Protocol Details
 
-```
-+-----------------------------------------------------------+
-| Python Flask App (Podman / OpenShift)                     |
-|                                                           |
-| - Web UI for Memory & CPU Stress Generation               |
-| - Cgroup v1/v2 Inspector (/sys/fs/cgroup)                 |
-| - OpenTelemetry Metric Exporter (OTLP / gRPC, Port 4317)  |
-+-----------------------------------------------------------+
-                             |
-             OTLP / gRPC (HTTP/2 binary protobuf)
-             Default Non-HTTP Protocol (Port 4317)
-                             v
-+-----------------------------------------------------------+
-| OpenTelemetry Collector (Contrib)                         |
-| - Receiver: OTLP gRPC (:4317)                             |
-| - Processor: memory_limiter, batch                        |
-| - Exporter: Prometheus (:8889), Debug (stdout)            |
-+-----------------------------------------------------------+
-                             |
-                   Prometheus Scrape (:8889)
-                             v
-+-----------------------------------------------------------+
-| Prometheus Server (:9090)                                 |
-| - Scrapes otel_container_memory_cgroup_usage_bytes        |
-| - Scrapes otel_process_memory_rss_bytes                   |
-| - Scrapes otel_process_cpu_utilization_percent            |
-+-----------------------------------------------------------+
-                             |
-                      Data Source (PromQL)
-                             v
-+-----------------------------------------------------------+
-| Grafana Dashboard (:3000)                                 |
-| - Headroom before Kernel OOMKill                          |
-| - RSS vs Hard Cgroup Limit Time Series                    |
-+-----------------------------------------------------------+
-```
-
 ```mermaid
 flowchart TD
-    APP["Python Flask App (Podman / OpenShift)<br/><br/>Web UI for Memory &amp; CPU Stress Generation<br/>Cgroup v1/v2 Inspector (/sys/fs/cgroup)<br/>OpenTelemetry Metric Exporter<br/>OTLP / gRPC :4317"]
+    APP["<div style='width:300px;height:180px;text-align:center;display:flex;flex-direction:column;justify-content:center;box-sizing:border-box;'><b>Python Flask App</b><br/><br/>HTTP :5000 <br/>Web UI for Memory &amp; CPU Stress Generation<br/><br/>OpenTelemetry Metric Exporter</div>"]
 
-    OTEL["OpenTelemetry Collector (Contrib)<br/><br/>Receiver: OTLP gRPC (:4317)<br/>Processors: memory_limiter, batch<br/>Exporters: Prometheus (:8889), Debug (stdout)"]
+    OTEL["<div style='width:300px;height:180px;text-align:center;display:flex;flex-direction:column;justify-content:center;box-sizing:border-box;'><b>OpenTelemetry Collector</b><br/>gRPC :4317<br/></div>"]
 
-    PROM["Prometheus Server (:9090)<br/><br/>Scrapes:<br/>otel_container_memory_cgroup_usage_bytes<br/>otel_process_memory_rss_bytes<br/>otel_process_cpu_utilization_percent"]
+    PROM["<div style='width:300px;height:180px;text-align:center;display:flex;flex-direction:column;justify-content:center;box-sizing:border-box;'></b>Prometheus Server</b><br/>HTTP :9090</div>"]
 
-    GRAFANA["Grafana Dashboard (:3000)<br/><br/>Headroom Before Kernel OOMKill<br/>RSS vs Hard Cgroup Limit Time Series"]
+    GRAFANA["<div style='width:300px;height:180px;text-align:center;display:flex;flex-direction:column;justify-content:center;box-sizing:border-box;'></b>Grafana</b><br/><br/>HTTP :3000<br/>Dashboard</div>"]
 
-    APP -->|"OTLP / gRPC :4317<br/>HTTP/2 binary Protobuf"| OTEL
+    APP -->|"HTTP/2 binary Protobuf"| OTEL
     OTEL -->|"Prometheus Scrape :8889"| PROM
     PROM -->|"Data Source (PromQL)"| GRAFANA
 
@@ -254,5 +217,11 @@ make down-stack
 
 # Screenshots
 
+
+![OpenTelemetry_Lab_Python_OOM_Investigation](doc/OpenTelemetry_Lab_Python_OOM_Investigation.png)
+
+![OpenTelemetry_Lab_Python_OOM_Investigation](doc/OpenTelemetry_Lab_Python_OOM_Investigation-Prometheus-PromQL-Query.png)
+
+![OpenTelemetry_Lab_Python_OOM_Investigation](doc/OpenTelemetry_Lab_Python_OOM_Investigation-Grafana-Dashboard.png)
 
 ![OpenTelemetry_Lab_Python_OOM_Investigation](doc/OpenTelemetry_Lab_Python_OOM_Investigation.png)
