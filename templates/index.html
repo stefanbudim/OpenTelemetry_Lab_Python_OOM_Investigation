@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenTelemetry OOM & Performance Investigator</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        body { background-color: #f4f6f9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        .card { border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.06); margin-bottom: 20px; border: none; }
+        .card-header { border-top-left-radius: 12px !important; border-top-right-radius: 12px !important; font-weight: 600; }
+        .metric-value { font-size: 1.8rem; font-weight: 700; }
+        .metric-sub { font-size: 0.85rem; color: #6c757d; }
+        .progress { height: 22px; border-radius: 8px; background-color: #e9ecef; }
+        .badge-protocol { font-size: 0.85rem; padding: 6px 12px; }
+        pre.code-box { background: #212529; color: #00ff88; padding: 12px; border-radius: 8px; font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+<nav class="navbar navbar-dark bg-dark px-4 shadow-sm">
+    <a class="navbar-brand d-flex align-items-center" href="/">
+        <i class="bi bi-speedometer2 me-2 text-warning fs-4"></i>
+        <span>OpenTelemetry OOM & Metrics Lab</span>
+    </a>
+    <span class="badge bg-secondary d-none d-md-inline" id="cgroupBadge">Detecting cgroups...</span>
+</nav>
+
+<div class="container-fluid py-4 px-lg-5">
+    <!-- Row 1: Collector Settings & Live Health -->
+    <div class="row">
+        <!-- Collector Settings -->
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-broadcast me-2"></i>OpenTelemetry Collector Exporter</span>
+                    <span class="badge bg-light text-primary badge-protocol">Protocol: OTLP / gRPC (Port 4317)</span>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">
+                        Metrics are exported over <strong>OTLP gRPC (HTTP/2 binary protobuf)</strong> instead of HTTP (4318).
+                        Default target is <code>localhost:4317</code> (or collector container name).
+                    </p>
+                    <div class="input-group mb-3">
+                        <span class="input-group-text"><i class="bi bi-link-45deg"></i></span>
+                        <input type="text" id="collectorEndpoint" class="form-control" value="{{ default_collector }}" placeholder="e.g. localhost:4317 or otel-collector:4317">
+                        <button class="btn btn-primary" onclick="updateCollector()">
+                            <i class="bi bi-arrow-repeat me-1"></i> Apply Endpoint
+                        </button>
+                    </div>
+                    <div id="collectorStatus" class="small text-success">
+                        <i class="bi bi-check-circle-fill me-1"></i> Exporter active on: <strong>{{ default_collector }}</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Realtime Container Memory Status -->
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-pie-chart-fill me-2"></i>Container & Process Memory State</span>
+                    <span id="oomWarning" class="badge bg-success">Status: Healthy</span>
+                </div>
+                <div class="card-body">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="fw-semibold">Cgroup / Container Usage:</span>
+                        <span id="memUsageText" class="fw-bold">0 MB / 0 MB (0%)</span>
+                    </div>
+                    <div class="progress mb-3">
+                        <div id="memProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" role="progressbar" style="width: 0%">0%</div>
+                    </div>
+                    <div class="row text-center">
+                        <div class="col-4">
+                            <div class="metric-value text-primary" id="procRssVal">--</div>
+                            <div class="metric-sub">Process RSS (MB)</div>
+                        </div>
+                        <div class="col-4">
+                            <div class="metric-value text-secondary" id="procVmsVal">--</div>
+                            <div class="metric-sub">Process VMS (MB)</div>
+                        </div>
+                        <div class="col-4">
+                            <div class="metric-value text-danger" id="headroomVal">--</div>
+                            <div class="metric-sub">Headroom to OOM (MB)</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Row 2: Stress Generator UI -->
+    <div class="row mt-2">
+        <div class="col-lg-7">
+            <div class="card">
+                <div class="card-header bg-danger text-white">
+                    <i class="bi bi-fire me-2"></i>CPU & Memory Load Generator (Simulate OOM)
+                </div>
+                <div class="card-body">
+                    <form id="stressForm" onsubmit="startStress(event)">
+                        <div class="row g-3">
+                            <!-- Memory Load -->
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Memory Load (MB):</label>
+                                <div class="input-group">
+                                    <input type="number" id="loadMb" class="form-control" value="200" min="10" max="8192">
+                                    <span class="input-group-text">MB</span>
+                                </div>
+                                <div class="form-text">Allocates real non-zero byte arrays into RSS.</div>
+                            </div>
+
+                            <!-- Duration -->
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Duration (Seconds):</label>
+                                <div class="input-group">
+                                    <input type="number" id="durationSec" class="form-control" value="25" min="2" max="600">
+                                    <span class="input-group-text">sec</span>
+                                </div>
+                                <div class="form-text">Time before memory is released and GC triggered.</div>
+                            </div>
+
+                            <!-- CPU Workers -->
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">CPU Worker Threads:</label>
+                                <select id="cpuWorkers" class="form-select">
+                                    <option value="0">0 (No CPU Load)</option>
+                                    <option value="1">1 Thread (100% Core)</option>
+                                    <option value="2" selected>2 Threads (High CPU)</option>
+                                    <option value="4">4 Threads (Max CPU)</option>
+                                </select>
+                                <div class="form-text">Executes heavy SHA256 & floating point loops.</div>
+                            </div>
+
+                            <!-- Leak Permanently -->
+                            <div class="col-md-6 d-flex align-items-center pt-3">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="leakPerm">
+                                    <label class="form-check-label fw-semibold" for="leakPerm">Retain Memory (Permanent Leak)</label>
+                                    <div class="text-muted small">Do not free memory when timer finishes.</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <hr class="my-4">
+
+                        <div class="d-flex flex-wrap gap-2">
+                            <button type="submit" class="btn btn-danger btn-lg px-4" id="btnStartStress">
+                                <i class="bi bi-play-circle-fill me-1"></i> Generate High Load
+                            </button>
+                            <button type="button" class="btn btn-warning btn-lg" onclick="triggerOomKill()">
+                                <i class="bi bi-radioactive me-1"></i> Force Container OOMKill (350MB Burst)
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary btn-lg" onclick="stopStress()">
+                                <i class="bi bi-stop-circle me-1"></i> Emergency Stop
+                            </button>
+                        </div>
+                    </form>
+
+                    <!-- Real-time stress monitor status -->
+                    <div class="alert alert-info mt-3 d-none" id="stressAlert">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-gear-wide-connected spin me-2"></i><span id="stressAlertText">Load test running...</span></span>
+                            <span class="badge bg-primary" id="stressAllocatedBadge">0 MB allocated</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- System & CPU Live Stats -->
+        <div class="col-lg-5">
+            <div class="card">
+                <div class="card-header bg-secondary text-white">
+                    <i class="bi bi-cpu-fill me-2"></i>CPU & Process Telemetry
+                </div>
+                <div class="card-body">
+                    <div class="row text-center mb-3">
+                        <div class="col-6 border-end">
+                            <div class="metric-value text-info" id="cpuPercentVal">0%</div>
+                            <div class="metric-sub">Process CPU Utilization</div>
+                        </div>
+                        <div class="col-6">
+                            <div class="metric-value text-secondary" id="threadCountVal">0</div>
+                            <div class="metric-sub">Active OS Threads</div>
+                        </div>
+                    </div>
+                    <div class="list-group list-group-flush small">
+                        <div class="list-group-item d-flex justify-content-between">
+                            <span>Process PID:</span>
+                            <strong id="pidVal">--</strong>
+                        </div>
+                        <div class="list-group-item d-flex justify-content-between">
+                            <span>Active Stress Memory:</span>
+                            <strong id="stressMemVal">0 MB</strong>
+                        </div>
+                        <div class="list-group-item d-flex justify-content-between">
+                            <span>OTel Exporter Interval:</span>
+                            <strong>5000 ms (Periodic Reader)</strong>
+                        </div>
+                        <div class="list-group-item d-flex justify-content-between">
+                            <span>OTel Metric Names:</span>
+                            <code>process_memory_rss_bytes</code>, <code>container_memory_cgroup_usage_bytes</code>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Row 3: OOM Investigation Reference -->
+    <div class="row mt-2">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-dark text-white">
+                    <i class="bi bi-question-circle-fill me-2"></i>OOM Investigation Guide for Podman & OpenShift
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6 class="fw-bold text-primary"><i class="bi bi-graph-up me-1"></i>Key Metrics to Investigate OOM</h6>
+                            <ul class="small mb-3">
+                                <li><code>container_memory_working_set_bytes</code>: <strong>The critical metric</strong> used by Kubernetes/OpenShift kernel OOM killer. It represents active RSS + unevictable memory.</li>
+                                <li><code>process_memory_rss_bytes</code>: Resident memory consumed directly by Python code and native extensions (excluding disk caches).</li>
+                                <li><code>container_memory_cgroup_limit_bytes</code> / <code>cgroup/memory.max</code>: The hard limit set in pod YAML (<code>resources.limits.memory</code>). When working set hits this, Linux sends SIGKILL (Exit 137).</li>
+                                <li><code>kube_pod_container_status_last_terminated_reason{reason="OOMKilled"}</code>: Confirms pod was killed due to memory limit breach.</li>
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            <h6 class="fw-bold text-primary"><i class="bi bi-tools me-1"></i>Recommended Tools</h6>
+                            <ul class="small mb-3">
+                                <li><strong>OpenTelemetry Collector</strong>: Ingests OTLP gRPC telemetry, batches, and exports to Prometheus.</li>
+                                <li><strong>Prometheus & Grafana</strong>: Scrapes metrics, graphs RSS vs limit, alerts before threshold breach.</li>
+                                <li><strong>OpenShift Web Console</strong>: Observe <em>Observe > Metrics</em> or <em>Workloads > Pods > Events</em> (Reason: <code>OOMKilled</code>, Exit code: <code>137</code>).</li>
+                                <li><strong>memray / tracemalloc</strong>: Deep-dive Python memory allocators to find code-level memory leaks.</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="bg-light p-3 rounded border">
+                        <span class="fw-bold small text-secondary">Quick CLI commands:</span>
+                        <div class="row mt-1 small">
+                            <div class="col-md-6"><code>podman inspect --format '{% raw %}{{.State.OOMKilled}}{% endraw %}' &lt;container&gt;</code></div>
+                            <div class="col-md-6"><code>oc describe pod &lt;pod-name&gt; | grep -E "OOMKilled|Exit Code"</code></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    async function updateStatus() {
+        try {
+            const res = await fetch('/api/status');
+            const data = await res.json();
+
+            // Process stats
+            document.getElementById('procRssVal').innerText = data.process.rss_mb;
+            document.getElementById('procVmsVal').innerText = data.process.vms_mb;
+            document.getElementById('cpuPercentVal').innerText = data.process.cpu_percent.toFixed(1) + '%';
+            document.getElementById('threadCountVal').innerText = data.process.threads;
+            document.getElementById('pidVal').innerText = data.process.pid;
+
+            // Cgroup & Headroom
+            const cg = data.container_cgroup;
+            document.getElementById('cgroupBadge').innerText = 'Cgroup: ' + cg.version.toUpperCase();
+
+            let limitText = cg.limit_mb === 'unlimited' ? 'Host Total' : cg.limit_mb + ' MB';
+            document.getElementById('memUsageText').innerText = cg.usage_mb + ' MB / ' + limitText + ' (' + cg.utilization_pct + '%)';
+            document.getElementById('headroomVal').innerText = cg.headroom_mb;
+
+            const pBar = document.getElementById('memProgressBar');
+            pBar.style.width = Math.min(cg.utilization_pct, 100) + '%';
+            pBar.innerText = cg.utilization_pct + '%';
+
+            const oomBadge = document.getElementById('oomWarning');
+            if (cg.utilization_pct > 88) {
+                pBar.className = 'progress-bar progress-bar-striped progress-bar-animated bg-danger';
+                oomBadge.className = 'badge bg-danger';
+                oomBadge.innerText = 'CRITICAL: OOM Imminent!';
+            } else if (cg.utilization_pct > 70) {
+                pBar.className = 'progress-bar progress-bar-striped progress-bar-animated bg-warning text-dark';
+                oomBadge.className = 'badge bg-warning text-dark';
+                oomBadge.innerText = 'Warning: High Memory';
+            } else {
+                pBar.className = 'progress-bar progress-bar-striped progress-bar-animated bg-success';
+                oomBadge.className = 'badge bg-success';
+                oomBadge.innerText = 'Status: Healthy';
+            }
+
+            // Stress info
+            const stress = data.stress;
+            const alertBox = document.getElementById('stressAlert');
+            document.getElementById('stressMemVal').innerText = stress.memory_allocated_mb + ' MB';
+            if (stress.running) {
+                alertBox.classList.remove('d-none');
+                document.getElementById('stressAlertText').innerText = 
+                    `Generating ${stress.memory_target_mb}MB with ${stress.cpu_workers} CPU workers...`;
+                document.getElementById('stressAllocatedBadge').innerText = `${stress.memory_allocated_mb} MB allocated`;
+            } else {
+                alertBox.classList.add('d-none');
+            }
+
+        } catch (err) {
+            console.warn('Status poll error:', err);
+        }
+    }
+
+    async function startStress(e) {
+        if (e) e.preventDefault();
+        const payload = {
+            load_mb: parseInt(document.getElementById('loadMb').value),
+            duration_sec: parseInt(document.getElementById('durationSec').value),
+            cpu_workers: parseInt(document.getElementById('cpuWorkers').value),
+            leak_permanently: document.getElementById('leakPerm').checked
+        };
+
+        const res = await fetch('/api/stress/start', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (res.status === 409) {
+            alert('A test is already currently running.');
+        } else {
+            updateStatus();
+        }
+    }
+
+    async function triggerOomKill() {
+        // Sets memory load high enough to trigger 256MB/512MB container OOM
+        document.getElementById('loadMb').value = '400';
+        document.getElementById('durationSec').value = '60';
+        document.getElementById('cpuWorkers').value = '2';
+        document.getElementById('leakPerm').checked = true;
+        startStress();
+    }
+
+    async function stopStress() {
+        await fetch('/api/stress/stop', {method: 'POST'});
+        updateStatus();
+    }
+
+    async function updateCollector() {
+        const endpoint = document.getElementById('collectorEndpoint').value;
+        const res = await fetch('/api/config/collector', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({endpoint: endpoint})
+        });
+        const data = await res.json();
+        document.getElementById('collectorStatus').innerHTML = 
+            '<i class="bi bi-check-circle-fill me-1"></i> Updated endpoint to: <strong>' + data.endpoint + '</strong>';
+    }
+
+    setInterval(updateStatus, 1500);
+    updateStatus();
+</script>
+</body>
+</html>

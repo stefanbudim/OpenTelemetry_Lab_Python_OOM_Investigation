@@ -1,0 +1,39 @@
+receivers:
+  otlp:
+    protocols:
+      # Default non-HTTP protocol: gRPC on port 4317
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 2s
+    send_batch_size: 256
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 20
+
+exporters:
+  # Expose Prometheus scraping endpoint for Prometheus server
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    namespace: "otel"
+    send_timestamps: true
+    metric_expiration: 180s
+
+  # Debug exporter to inspect incoming metrics directly in logs
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus, debug]
+  telemetry:
+    logs:
+      level: info
