@@ -217,11 +217,14 @@ make down-stack
 
 # Screenshots
 
+## Python Flask App
 
 ![OpenTelemetry_Lab_Python_OOM_Investigation](doc/OpenTelemetry_Lab_Python_OOM_Investigation.png)
+
+## Prometheus PromQL Query
 
 ![OpenTelemetry_Lab_Python_OOM_Investigation](doc/OpenTelemetry_Lab_Python_OOM_Investigation-Prometheus-PromQL-Query.png)
 
-![OpenTelemetry_Lab_Python_OOM_Investigation](doc/OpenTelemetry_Lab_Python_OOM_Investigation-Grafana-Dashboard.png)
+## Grafana Dashboard
 
-![OpenTelemetry_Lab_Python_OOM_Investigation](doc/OpenTelemetry_Lab_Python_OOM_Investigation.png)
+![OpenTelemetry_Lab_Python_OOM_Investigation](doc/OpenTelemetry_Lab_Python_OOM_Investigation-Grafana-Dashboard.png)
